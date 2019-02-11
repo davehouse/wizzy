@@ -177,6 +177,10 @@ Grafana.prototype.import = function(commands) {
   else if (entityType === 'dashboards') {
     importSrv.dashboards(self.grafanaUrl, self.setURLOptions());
   }
+  // imports a dashboard from Grafana
+  if (entityType === 'folder') {
+    importSrv.folder(self.grafanaUrl, self.setURLOptions(), entityValue);
+  }
   // imports an org from Grafana
   else if (entityType === 'org') {
     importSrv.org(self.grafanaUrl, self.setURLOptions(), entityValue);
@@ -246,6 +250,9 @@ Grafana.prototype.export = function(commands) {
   // exporting all local datasources to Grafana
   else if (entityType === 'datasources') {
     exportSrv.datasources(self.grafanaUrl, self.setURLOptions());
+  }
+  else if (entityType === 'folder') {
+    exportSrv.folder(self.grafanaUrl, self.setURLOptions(), entityValue);
   }
   else {
     logger.showError('Unsupported entity type ' + entityType);
@@ -321,6 +328,36 @@ Grafana.prototype.list = function(commands) {
         logger.showError(failureMessage);
       }
     });
+  } else if (entityType === 'folders') {
+    successMessage = 'Displayed folders list successfully.';
+    failureMessage = 'Folders list display failed';
+    options.url = self.grafanaUrl + self.createURL('list', entityType);
+    request.get(options, function saveHandler(error, response, body) {
+      var output = '';
+      if (!error && response.statusCode === 200) {
+        var table = new Table({
+            head: ['Title', 'Slug', 'ID / UID', 'Type', 'folderTitle'],
+            colWidths: [30, 30, 30, 30, 30]
+        });
+        _.each(body, function(dashboard){
+          table.push([dashboard.title, dashboard.uri.substring(3), dashboard.id + " / " + dashboard.uid, dashboard.type, dashboard.folderTitle || ""]); //removing db/
+        });
+        output += table.toString();
+        logger.showOutput(output);
+        logger.showResult('Total folders: ' + body.length);
+        logger.showResult(successMessage);
+      } else {
+        output += 'Grafana API response status code = ' + response.statusCode;
+        if (error === null) {
+          output += '\nNo error body from Grafana API.';
+        }
+        else {
+          output += '\n' + error;
+        }
+        logger.showOutput(output);
+        logger.showError(failureMessage);
+      }
+    });
   } else {
     logger.showError('Unsupported entity type ' + entityType);
     return;
@@ -376,11 +413,13 @@ Grafana.prototype.createURL = function(command, entityType, entityValue) {
       url += '/' + entityValue;
     }
   } else if (entityType === 'dashboards') {
-    url += '/api/search';
+    url += '/api/search?type=dash-db';
   } else if (entityType === 'dashboards-by-tag') {
     url += '/api/search';
   } else if (entityType === 'dash-tags') {
     url += '/api/dashboards/tags';
+  } else if (entityType === 'folders') {
+    url += '/api/search?type=dash-folder';
   } else if (entityType === 'datasources') {
     url += '/api/datasources';
   } else if (entityType === 'datasource') {

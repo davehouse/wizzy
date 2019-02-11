@@ -123,7 +123,7 @@ ExportSrv.prototype.alerts = function(grafanaURL, options) {
   });
 };
 
-ExportSrv.prototype.dashboard = function(grafanaURL, options, dashboardName) {
+/*ExportSrv.prototype.dashboard = function(grafanaURL, options, dashboardName) {
 
   var folder = "";
   if (dashboardName.includes("/")){
@@ -167,9 +167,19 @@ ExportSrv.prototype.dashboard = function(grafanaURL, options, dashboardName) {
       }
     });
   });
-};
+};*/
 
-ExportSrv.prototype.dashboards = function(grafanaURL, options) {
+ExportSrv.prototype.dashboard = function(grafanaURL, options, folderdashboard) {
+  var folder = "";
+  var dashboard = "";
+  if (folderdashboard.includes("/")){
+    folder = folderdashboard.split("/")[0].replace(/_/g, ' ');
+    dashboard = folderdashboard.split("/")[1];
+  }
+
+  logger.justShow('Folder name: ' + folder);
+  logger.justShow('Dashboard name: ' + dashboard);
+
   var output = '';
   var failed = 0;
   var success = 0;
@@ -202,22 +212,162 @@ ExportSrv.prototype.dashboards = function(grafanaURL, options) {
       }
     });
 
+    var headers = options.headers || {};
+    if (options.auth.bearer) {
+      headers.Authorization = 'Bearer ' + options.auth.bearer;
+    }
+    var method = 'POST';
+    var url = createURL(grafanaURL, 'folders');
+    var folderId = 0;
+    url = sanitizeUrl(url, options.auth);
+    var body = {
+      title: folder
+    };
+    //Handle spaces is folder name
+    if (folder.toLowerCase().replace(/ /g, '-') in folderSlugs) {
+      method = 'PUT';
+      url = url + '/' + folderSlugs[folder.toLowerCase().replace(/ /g, '-')];
+      body.overwrite = true;
+    } 
+    // Use sync-request to avoid table lockdown
+    if (folder !== 'General'){
+      try {
+        var returnBody = {};
+        var response = syncReq(method, url, {
+          json: body,
+          headers: headers
+        });
+        try {
+          logger.showOutput(response.getBody('utf8'));
+          returnBody = JSON.parse(response.getBody('utf8'));
+        } catch (error) {
+          logger.showOutput(response.body.toString('utf8'));
+        }
+        if (response.statusCode !== 200) {
+          logger.showError('Folder ' + folder + ' export failed. Status code: ' + response.statusCode);
+          failed++;
+        } else {
+          folderId = returnBody.id;
+          logger.showResult('Folder ' + folder + ' exported successfully with Id: ' + folderId );
+          success++;
+        }
+      } catch (error) {
+        logger.showError('Folder ' + folder + ' export failed: ' + error);
+        failed++;
+      }
+    }
+
+    var dashList = [];
+    dashList.push(dashboard);
+    logger.justShow('Exporting ' + dashList.length + ' dashboards in ' + folder + ':');
+
+    // Here we try exporting (either updating or creating) a dashboard
+      var url = createURL(grafanaURL, 'dashboards');
+      url = sanitizeUrl(url, options.auth);
+      var body = {
+        dashboard: components.dashboards.readDashboard(dashboard, folder),
+        folderId: folderId
+      };
+      // Updating an existing dashboard
+      if (dashboard in dashSlugs) {
+        body.dashboard.id = dashSlugs[dashboard];
+        body.overwrite = true;
+      } else {
+        // Creating a new dashboard
+        body.dashboard.id = null;
+        body.overwrite = false;
+      }
+      // Use sync-request to avoid table lockdown
+      try {
+        var response = syncReq('POST', url, {json: body, headers: headers});
+        try {
+          logger.showOutput(response.getBody('utf8'));
+        } catch (error) {
+          logger.showOutput(response.body.toString('utf8'));
+        }
+        if (response.statusCode === 400) {
+          logger.showError('Dashboard ' + dashboard + ' already exists.');
+          failed++;
+        } else if (response.statusCode !== 200) {
+          logger.showError('Dashboard ' + dashboard + ' export failed.');
+          failed++;
+        } else {
+          logger.showResult('Dashboard ' + dashboard + ' exported successfully.');
+          success++;
+        }
+      } catch (error) {
+        logger.showError('Dashboard ' + dashboard + ' export failed: ' + error);
+        failed++;
+      }
+
+    if (success > 0) {
+      logger.showResult(success + ' dashboards exported successfully.');
+    }
+
+    if (failed > 0) {
+      logger.showError(failed + ' dashboards export failed.');
+    }
+    
+
+  });
+};
+
+ExportSrv.prototype.dashboards = function(grafanaURL, options) {
+  var output = '';
+  var failed = 0;
+  var success = 0;
+
+  options.url = createURL(grafanaURL, 'dashboard-search');
+
+  request.get(options, function saveHandler(error, response, body) {
+    if (error || response.statusCode !== 200) {
+      output += 'Grafana API response status code = ' + response.statusCode;
+      if (error === null) {
+        output += '\nNo error body from Grafana API.';
+      }
+      else {
+        output += '\n' + error;
+      }
+      logger.showOutput(output);
+      logger.showError('Error getting list of dashboards from Grafana');
+      process.exit(1);
+    }
+
+    // Getting existing list of dashboards and folders and making a mapping of names to ids
+    var dashSlugs = {};
+    var folderSlugs = {};
+
+    _.forEach(body, function(dashboard) {
+      //Removing "db/" from the uri
+      if (dashboard.type === 'dash-db') {
+        dashSlugs[dashboard.uri.substring(3)] = dashboard.id;
+      } else if (dashboard.type === 'dash-folder') {
+        folderSlugs[dashboard.uri.substring(3)] = dashboard.uid;
+      }
+    });
+
     var folderList = components.getDashboardFolders('dashboards');
     _.forEach(folderList, function(folder) {
+      logger.justShow('Folder : ' + folder);
       var headers = options.headers || {};
       if (options.auth.bearer) {
         headers.Authorization = 'Bearer ' + options.auth.bearer;
       }
       var method = 'POST';
       var url = createURL(grafanaURL, 'folders');
+      //logger.justShow('url: ' + url);
+      //logger.justShow('folder: ' + folder);
       var folderId = 0;
       url = sanitizeUrl(url, options.auth);
       var body = {
         title: folder
       };
-      if (folder.toLowerCase() in folderSlugs) {
+      //Handle spaces is folder name
+      if (folder.toLowerCase().replace(/ /g, '-') in folderSlugs) {
+        //const util = require('util');
+        //logger.justShow('folderSlugs: ' + util.inspect(folderSlugs, {showHidden: false, depth: null}));
         method = 'PUT';
-        url = url + '/' + folderSlugs[folder.toLowerCase()];
+        url = url + '/' + folderSlugs[folder.toLowerCase().replace(/ /g, '-')];
         body.overwrite = true;
       } 
       // Use sync-request to avoid table lockdown
@@ -234,7 +384,146 @@ ExportSrv.prototype.dashboards = function(grafanaURL, options) {
           logger.showOutput(response.body.toString('utf8'));
         }
         if (response.statusCode !== 200) {
-          logger.showError('Folder ' + folder + ' export failed.');
+          logger.showError('Folder ' + folder + ' export failed. Status code: ' + response.statusCode);
+          failed++;
+        } else {
+          folderId = returnBody.id;
+          logger.showResult('Folder ' + folder + ' exported successfully with Id: ' + folderId );
+          success++;
+        }
+      } catch (error) {
+        logger.showError('Folder ' + folder + ' export failed: ' + error);
+        failed++;
+      }
+
+      var dashList = components.readEntityNamesFromDir('dashboards/' + folder);
+      logger.justShow('Exporting ' + dashList.length + ' dashboards in ' + folder + ':');
+
+      // Here we try exporting (either updating or creating) a dashboard
+      _.forEach(dashList, function(dashboard) {
+        var url = createURL(grafanaURL, 'dashboards');
+        url = sanitizeUrl(url, options.auth);
+        var body = {
+          dashboard: components.dashboards.readDashboard(dashboard, folder),
+          folderId: folderId
+        };
+        // Updating an existing dashboard
+        if (dashboard in dashSlugs) {
+          body.dashboard.id = dashSlugs[dashboard];
+          body.overwrite = true;
+        } else {
+          // Creating a new dashboard
+          body.dashboard.id = null;
+          body.overwrite = false;
+        }
+        // Use sync-request to avoid table lockdown
+        try {
+          var response = syncReq('POST', url, {json: body, headers: headers});
+          try {
+            logger.showOutput(response.getBody('utf8'));
+          } catch (error) {
+            logger.showOutput(response.body.toString('utf8'));
+          }
+          if (response.statusCode === 400) {
+            logger.showError('Dashboard ' + dashboard + ' already exists.');
+            failed++;
+          } else if (response.statusCode !== 200) {
+            logger.showError('Dashboard ' + dashboard + ' export failed.');
+            failed++;
+          } else {
+            logger.showResult('Dashboard ' + dashboard + ' exported successfully.');
+            success++;
+          }
+        } catch (error) {
+          logger.showError('Dashboard ' + dashboard + ' export failed: ' + error);
+          failed++;
+        }
+      });
+
+      if (success > 0) {
+        logger.showResult(success + ' dashboards exported successfully.');
+      }
+
+      if (failed > 0) {
+        logger.showError(failed + ' dashboards export failed.');
+      }
+    });
+
+  });
+};
+
+ExportSrv.prototype.folder = function(grafanaURL, options, folderName) {
+  folderName = folderName.replace(/_/g, ' ');
+
+  logger.justShow('Exporting Folder : ' + folderName);
+
+  var output = '';
+  var failed = 0;
+  var success = 0;
+
+  options.url = createURL(grafanaURL, 'dashboard-search');
+
+  request.get(options, function saveHandler(error, response, body) {
+    if (error || response.statusCode !== 200) {
+      output += 'Grafana API response status code = ' + response.statusCode;
+      if (error === null) {
+        output += '\nNo error body from Grafana API.';
+      }
+      else {
+        output += '\n' + error;
+      }
+      logger.showOutput(output);
+      logger.showError('Error getting list of dashboards from Grafana');
+      process.exit(1);
+    }
+
+    // Getting existing list of dashboards and folders and making a mapping of names to ids
+    var dashSlugs = {};
+    var folderSlugs = {};
+    _.forEach(body, function(dashboard) {
+      //Removing "db/" from the uri
+      if (dashboard.type === 'dash-db') {
+        dashSlugs[dashboard.uri.substring(3)] = dashboard.id;
+      } else if (dashboard.type === 'dash-folder') {
+        folderSlugs[dashboard.uri.substring(3)] = dashboard.uid;
+      }
+    });
+
+    var folderList = [];
+    folderList.push(folderName);
+    _.forEach(folderList, function(folder) {
+      var headers = options.headers || {};
+      if (options.auth.bearer) {
+        headers.Authorization = 'Bearer ' + options.auth.bearer;
+      }
+      var method = 'POST';
+      var url = createURL(grafanaURL, 'folders');
+      var folderId = 0;
+      url = sanitizeUrl(url, options.auth);
+      var body = {
+        title: folder
+      };
+      //Handle spaces is folder name
+      if (folder.toLowerCase().replace(/ /g, '-') in folderSlugs) {
+        method = 'PUT';
+        url = url + '/' + folderSlugs[folder.toLowerCase().replace(/ /g, '-')];
+        body.overwrite = true;
+      } 
+      // Use sync-request to avoid table lockdown
+      try {
+        var returnBody = {};
+        var response = syncReq(method, url, {
+          json: body,
+          headers: headers
+        });
+        try {
+          logger.showOutput(response.getBody('utf8'));
+          returnBody = JSON.parse(response.getBody('utf8'));
+        } catch (error) {
+          logger.showOutput(response.body.toString('utf8'));
+        }
+        if (response.statusCode !== 200) {
+          logger.showError('Folder ' + folder + ' export failed. Status code: ' + response.statusCode);
           failed++;
         } else {
           folderId = returnBody.id;
