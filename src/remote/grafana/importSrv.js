@@ -353,6 +353,8 @@ function createURL(grafanaURL, entityType, entityValue) {
   //   grafanaURL += '/api/dashboards/uid/' + entityValue;
   } else if (entityType === 'folder') {
     grafanaURL += '/api/search?type=dash-db&folderIds=' + entityValue;
+  } else if (entityType === 'folders') {
+    grafanaURL += '/api/search?type=dash-db&folderIds=' + entityValue;
   } else if (entityType === 'dashboards') {
     grafanaURL += '/api/search?type=dash-db';
   } else if (entityType === 'org') {

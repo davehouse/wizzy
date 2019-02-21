@@ -178,7 +178,7 @@ Grafana.prototype.import = function(commands) {
     importSrv.dashboards(self.grafanaUrl, self.setURLOptions());
   }
   // imports a dashboard from Grafana
-  if (entityType === 'folder') {
+  else if (entityType === 'folder') {
     importSrv.folder(self.grafanaUrl, self.setURLOptions(), entityValue);
   }
   // imports an org from Grafana
