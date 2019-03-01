@@ -77,6 +77,7 @@ function addRemoteDashboardCommands() {
   help += '\n   wizzy import folder FOLDER_ID\n    (Get FOLDER_ID by command "wizzy list folders")\n    (Folder "General" ID = 0)';
   help += '\n   wizzy export dashboards';
   help += '\n   wizzy export dashboard FOLDER_NAME/DASHBOARD_SLUG\n    (If folder name include white space, use "_" instead " ")\n    (Folder name is case sensitive)';
+  help += '\n   wizzy export folder FOLDER_NAME\n    (If folder name include white space, use "_" instead " ")\n    (Folder name is case sensitive)';
   help += '\n   wizzy delete dashboard DASHBOARD_SLUG';
   help += '\n   wizzy clip dashboard DASHBOARD_SLUG';
   help += '\n   wizzy clip dashboards-by-tag DASHBOARD_TAG_NAME';
